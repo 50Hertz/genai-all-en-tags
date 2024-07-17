@@ -1,0 +1,13 @@
+name: tags
+
+channels:
+  - defaults
+
+dependencies:
+  - python=3.11
+  - numpy
+  - pandas
+  - pip
+  - pytorch
+  - pip:
+      - googletrans
