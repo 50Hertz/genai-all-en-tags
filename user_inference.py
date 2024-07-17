@@ -29,10 +29,7 @@ def generate_query_tags(query):
         {instruction}
 
         ### Input:
-        {input}
-
-        ### Response:
-        {}"""
+        {input}"""
 
     hf = HuggingFacePipeline.from_model_id(
         model_id="LeonKogler/MergedModelAllArticles",

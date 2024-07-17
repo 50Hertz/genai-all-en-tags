@@ -10,6 +10,8 @@ from langchain.chains.llm import LLMChain
 from langchain_community.llms.ollama import Ollama
 from langchain_core.prompts import PromptTemplate
 
+from util import constants
+
 
 # TODO Implement the preprocessing steps here
 def handle_input_file(file_location, output_path):
@@ -19,10 +21,7 @@ def handle_input_file(file_location, output_path):
     {instruction}
 
     ### Input:
-    {input}
-
-    ### Response:
-    {}"""
+    {input}"""
 
     with open(file_location) as f:
         data = json.load(f)
@@ -30,29 +29,27 @@ def handle_input_file(file_location, output_path):
     instruction = "You are a helpful assistant working at the EU. It is your job to give users unbiased article recommendations. To do so, you always provide a list of tags, whenever you are prompted with an article. The tags should represent the core ideas of the article, and always be unbiased and in English. Respond with the tags only, separated by commas in a string array. Each tag can be 1 or more words, if needed"
 
     prompt = PromptTemplate.from_template(empty_prompt)
-    llm = Ollama(model="mergedmodel")
+    llm = Ollama(model=constants.OLLAMA_MODEL_ID)
     chain = prompt | llm
 
     #print(llm_chain.run({"instruction": instruction, "input": "\n".join(data["content"])}))
-    out = chain.invoke({"instruction": instruction, "input": "\n".join(data["content"])})
-    print(out)
-    response = out["response"]
-
+    response = chain.invoke({"instruction": instruction, "input": "\n".join(data["content"])})
 
     tags = response.split(",")
     tags = list(set(map(lambda x: x.strip().lower(), tags)))
 
     file_name = split_path(file_location)[-1]
-    #with open(join(output_path, file_name), "w") as f:
-    with open(join("data/transformed", file_name), "w") as f:
+
+    #with open(join("data/transformed", file_name), "w") as f:
+    with open(join(output_path, file_name), "w") as f:
         json.dump({
             "transformed_representation": tags
         }, f)
 
-if True:
-    handle_input_file("sample_data/article_1.json", "output")
-    exit(0)
-exit(0)
+# if True:
+#     handle_input_file("sample_data/article_1.json", "output")
+#     exit(0)
+# exit(0)
 
 # This is a useful argparse-setup, you probably want to use in your project:
 import argparse
