@@ -65,7 +65,7 @@ def handle_user_query(query, query_id, output_path):
     generated_queries = response.strip().split("\n")
     generated_queries = list(set(map(lambda x: x.strip().lower(), generated_queries)))
 
-    with open(join(output_path, query_id + ".json"), "w") as f:
+    with open(join(output_path, f"{query_id}.json"), "w") as f:
         json.dump({
             "generated_queries": generated_queries,
             "detected_language": query_lang,
@@ -91,6 +91,10 @@ async def perform_search(translated_query, output_path, llm):
                     metadata={"file_name": file_name, "source": file_path}
                 )
                 docs.append(doc)
+
+    if not docs:
+        print("No documents found.")
+        return
 
     embedding_function = OllamaEmbeddings(model="mxbai-embed-large")
 
@@ -148,12 +152,12 @@ async def perform_search(translated_query, output_path, llm):
     pprint(search_results)
 
 
-if True:
-    handle_user_query("What are the benefits of LLMs in programming?", "1", "output")
-    #rank_articles(["What are the benefits of LLMs in programming?"], [[ "llms", "ai", "programming" ], [ "war in ukraine", "russia", "ukraine"]])
-    exit(0)
-
-exit(0)
+# if True:
+#     handle_user_query("What are the benefits of LLMs in programming?", "1", "output")
+#     #rank_articles(["What are the benefits of LLMs in programming?"], [[ "llms", "ai", "programming" ], [ "war in ukraine", "russia", "ukraine"]])
+#     exit(0)
+#
+# exit(0)
 
 import argparse
 # This is a sample argparse-setup, you probably want to use in your project:

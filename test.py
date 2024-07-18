@@ -103,7 +103,7 @@ def test_inference():
                 with open(join(out_dir, f"{query_id}.json"), "r") as f:
                     filedata = json.load(f)
                     assert "detected_language" in filedata, f"The key 'detected_language' was not found in the file {query_id}.json."
-                    assert "generated_query" in filedata, f"The key 'generated_query' was not found in the file {query_id}.json."
+                    assert "generated_queries" in filedata, f"The key 'generated_queries' was not found in the file {query_id}.json."
 
             print(bcolors.OKGREEN + "> The inference script ran successfully.")
             print(bcolors.OKBLUE + tranform_output(result.stdout.decode()))
