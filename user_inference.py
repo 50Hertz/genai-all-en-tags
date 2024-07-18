@@ -1,9 +1,10 @@
 # This file will be executed when a user wants to query your project.
-import argparse
 import json
+import asyncio
 import logging
 import os
 from os.path import join
+from pprint import pprint
 from typing import List
 
 from langchain.retrievers import MultiQueryRetriever
@@ -28,7 +29,7 @@ def generate_query_tags(query_text):
     chain = prompt | llm
 
     response = chain.invoke({"instruction": instruction, "input": query_text})
-    print(response)
+    #print(response)
 
     tags = response.split(",")
     tags = list(set(map(lambda x: x.strip().lower(), tags)))
@@ -40,10 +41,40 @@ def generate_query_tags(query_text):
 def handle_user_query(query, query_id, output_path):
     query_lang = util_common.detect_language(query)
     if not util_common.is_allowed_language(query_lang):
-        logging.warning(f"Query language '{query_lang}' is not explicitly supported. Results may be suboptimal. Supported languages are: {constants.ALLOWED_LANGUAGES}")
+        logging.warning(
+            f"Query language '{query_lang}' is not explicitly supported. Results may be suboptimal. Supported languages are: {constants.ALLOWED_LANGUAGES}")
 
     translated_query = query if query_lang == "en" else util_common.translate_query(query, query_lang)
 
+    QUERY_PROMPT = PromptTemplate(
+        input_variables=["question"],
+        template="""You are an AI language model assistant. Your task is to generate five 
+               different versions of the given user question to retrieve relevant documents from a vector 
+               database. By generating multiple perspectives on the user question, your goal is to help
+               the user overcome some of the limitations of the distance-based similarity search. 
+               Provide these alternative questions separated by newlines. Respond with the alternative questions only.
+               Original question: {question}""",
+    )
+    llm = Ollama(model=constants.OLLAMA_MODEL_ID)
+
+    # Chain
+    chain = QUERY_PROMPT | llm
+
+    response = chain.invoke({"question": translated_query})
+
+    generated_queries = response.strip().split("\n")
+    generated_queries = list(set(map(lambda x: x.strip().lower(), generated_queries)))
+
+    with open(join(output_path, query_id + ".json"), "w") as f:
+        json.dump({
+            "generated_queries": generated_queries,
+            "detected_language": query_lang,
+        }, f)
+
+    asyncio.run(perform_search(translated_query, output_path, llm))
+
+
+async def perform_search(translated_query, output_path, llm):
     docs = []
 
     for file_name in os.listdir(output_path):
@@ -51,7 +82,10 @@ def handle_user_query(query, query_id, output_path):
             file_path = os.path.join(output_path, file_name)
             with open(file_path, 'r') as file:
                 data = json.load(file)
-                tags = data['transformed_representation']
+                tags = data.get('transformed_representation', [])
+                if not tags:
+                    continue
+
                 doc = Document(
                     page_content=', '.join(tags),
                     metadata={"file_name": file_name, "source": file_path}
@@ -63,16 +97,14 @@ def handle_user_query(query, query_id, output_path):
     # load it into Chroma
     vector_db = Chroma.from_documents(docs, embedding_function)
 
-    generated_queries = []
-
     # Output parser will split the LLM result into a list of queries
     class LineListOutputParser(BaseOutputParser[List[str]]):
         """Output parser for a list of lines."""
+
         def parse(self, text: str) -> List[str]:
             lines = text.strip().split("\n")
             lines_tags = []
             for line in lines:
-                generated_queries.append(line)
                 line_tag = generate_query_tags(line)
                 lines_tags.append(', '.join(line_tag))
 
@@ -83,21 +115,15 @@ def handle_user_query(query, query_id, output_path):
     QUERY_PROMPT = PromptTemplate(
         input_variables=["question"],
         template="""You are an AI language model assistant. Your task is to generate five 
-               different versions of the given user question to retrieve relevant documents from a vector 
-               database. By generating multiple perspectives on the user question, your goal is to help
-               the user overcome some of the limitations of the distance-based similarity search. 
-               Provide these alternative questions separated by newlines. Response with the alternative questions only.
-               Original question: {question}""",
+                   different versions of the given user question to retrieve relevant documents from a vector 
+                   database. By generating multiple perspectives on the user question, your goal is to help
+                   the user overcome some of the limitations of the distance-based similarity search. 
+                   Provide these alternative questions separated by newlines. Response with the alternative questions only.
+                   Original question: {question}""",
     )
-    llm = Ollama(model=constants.OLLAMA_MODEL_ID)
 
     # Chain
     llm_chain = QUERY_PROMPT | llm | output_parser
-
-    # import logging
-    #
-    # logging.basicConfig()
-    # logging.getLogger("langchain.retrievers.multi_query").setLevel(logging.INFO)
 
     # Run
     retriever = MultiQueryRetriever(
@@ -105,18 +131,9 @@ def handle_user_query(query, query_id, output_path):
 
     # Results
     unique_docs = retriever.invoke(translated_query)
-    len(unique_docs)
-
-    result = {
-        "generated_queries": generated_queries,
-        "detected_language": query_lang,
-    }
-
-    with open(join(output_path, f"{query_id}.json"), "w") as f:
-        json.dump(result, f)
 
     search_results = {
-        "query": query,
+        "query": translated_query,
         "results": [
             {
                 "index": index,
@@ -128,7 +145,7 @@ def handle_user_query(query, query_id, output_path):
         ]
     }
 
-    print(search_results)
+    pprint(search_results)
 
 
 if True:
@@ -138,6 +155,7 @@ if True:
 
 exit(0)
 
+import argparse
 # This is a sample argparse-setup, you probably want to use in your project:
 parser = argparse.ArgumentParser(description='Run the inference.')
 parser.add_argument('--query', type=str, help='The user query.', required=True, action="append")

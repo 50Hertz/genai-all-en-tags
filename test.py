@@ -23,8 +23,6 @@ class bcolors:
 def nanoid(n=10):
     return ''.join(sample('abcdefghijklmnopqrstuvwxyz', n))
 
-output_directory = nanoid()
-
 
 def tranform_output(output):
     lines = output.split('\n')
@@ -45,17 +43,17 @@ def test_setup():
 
 
 def test_preprocess():
-    output_dir = output_directory
+    output_dir = nanoid()
     mkdir(output_dir)
 
-    args = ["--output", output_dir]
+    test_args = ["--output", output_dir]
     articles = ["sample_data/article_1.json"]
 
     for article in articles:
-        args.append("--input")
-        args.append(article)
+        test_args.append("--input")
+        test_args.append(article)
 
-    result = subprocess.run([sys.executable, "user_preprocess.py", *args], check=False, capture_output=True)
+    result = subprocess.run([sys.executable, "user_preprocess.py", *test_args], check=False, capture_output=True)
     if result.returncode != 0:
         print(bcolors.FAIL + "> The preprocess script did not run successfully.")
         print(bcolors.FAIL + tranform_output(result.stderr.decode()))
@@ -75,25 +73,25 @@ def test_preprocess():
             print(bcolors.FAIL + "> The preprocess script did not create the expected output.")
             print(bcolors.FAIL + tranform_output(str(e)))
 
-    #shutil.rmtree(output_dir, ignore_errors=True)
+    shutil.rmtree(output_dir, ignore_errors=True)
 
 
 def test_inference():
-    out_dir = output_directory
-    #mkdir(out_dir)
+    out_dir = nanoid()
+    mkdir(out_dir)
 
-    args = ["--output", out_dir]
+    test_args = ["--output", out_dir]
     queries = ["sports", "soccer", "Munich vs Dortmund"]
     for query in queries:
-        args.append("--query")
-        args.append(query)
+        test_args.append("--query")
+        test_args.append(query)
 
     query_ids = [nanoid() for _ in queries]
     for query_id in query_ids:
-        args.append("--query_id")
-        args.append(query_id)
+        test_args.append("--query_id")
+        test_args.append(query_id)
 
-    result = subprocess.run([sys.executable, "user_inference.py", *args], check=False, capture_output=True)
+    result = subprocess.run([sys.executable, "user_inference.py", *test_args], check=False, capture_output=True)
     if result.returncode != 0:
         print(bcolors.FAIL + "> The inference script did not run successfully.")
         print(bcolors.FAIL + tranform_output(result.stderr.decode()))
