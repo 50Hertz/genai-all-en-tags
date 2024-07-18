@@ -10,4 +10,4 @@ dependencies:
   - pip
   - pytorch
   - pip:
-      - googletrans
+      - googletrans==3.1.0a0

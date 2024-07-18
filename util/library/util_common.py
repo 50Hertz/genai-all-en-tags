@@ -1,26 +1,13 @@
 import json
 from datetime import datetime, timedelta
-from getpass import getpass
 from googletrans import Translator
-from langdetect import detect
 from util.constants import ALLOWED_LANGUAGES
-import requests
-from util import constants
 
-HUGGINGFACEHUB_API_TOKEN = getpass()
-API_URL = f"https://api-inference.huggingface.co/models/{constants.MODEL_ID}"
-headers = {"Authorization": f"Bearer {HUGGINGFACEHUB_API_TOKEN}"}
-
-
-def query(payload):
-    response = requests.post(API_URL, headers=headers, json=payload)
-    return response.json()
 
 def detect_language(text):
-    try:
-        return detect(text)
-    except Exception as e:
-        return f"Error detecting language: {e}"
+    translator = Translator()
+    detection = translator.detect(text)
+    return detection.lang
 
 
 def translate_query(query, source_lang, target_lang='en'):

@@ -6,7 +6,6 @@
 import json
 from os.path import join, split as split_path
 
-from langchain.chains.llm import LLMChain
 from langchain_community.llms.ollama import Ollama
 from langchain_core.prompts import PromptTemplate
 
@@ -15,13 +14,7 @@ from util import constants
 
 # TODO Implement the preprocessing steps here
 def handle_input_file(file_location, output_path):
-    empty_prompt = """Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.
-
-    ### Instruction:
-    {instruction}
-
-    ### Input:
-    {input}"""
+    empty_prompt = constants.OLLAMA_PROMPT
 
     with open(file_location) as f:
         data = json.load(f)
@@ -32,7 +25,6 @@ def handle_input_file(file_location, output_path):
     llm = Ollama(model=constants.OLLAMA_MODEL_ID)
     chain = prompt | llm
 
-    #print(llm_chain.run({"instruction": instruction, "input": "\n".join(data["content"])}))
     response = chain.invoke({"instruction": instruction, "input": "\n".join(data["content"])})
 
     tags = response.split(",")
