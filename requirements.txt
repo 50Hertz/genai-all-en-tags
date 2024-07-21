@@ -157,11 +157,19 @@ multidict==6.0.5
     #   yarl
 mypy-extensions==1.0.0
     # via typing-inspect
+#numpy==1.26.4
+    # via
+    #   chroma-hnswlib
+    #   chromadb
+    #   langchain
+    #   langchain-chroma
+    #   langchain-community
+    #   onnxruntime
 oauthlib==3.2.2
     # via
     #   kubernetes
     #   requests-oauthlib
-onnxruntime==1.17.0
+#onnxruntime==1.17.0
     # via chromadb
 opentelemetry-api==1.25.0
     # via
