@@ -1,8 +1,9 @@
 # This file will be executed when a user wants to query your project.
-import json
 import asyncio
+import json
 import logging
 import os
+import shutil
 from os.path import join
 from pprint import pprint
 from typing import List
@@ -11,9 +12,10 @@ from langchain.retrievers import MultiQueryRetriever
 from langchain_chroma import Chroma
 from langchain_community.embeddings import OllamaEmbeddings
 from langchain_community.llms.ollama import Ollama
+from langchain_core.callbacks import CallbackManagerForRetrieverRun
 from langchain_core.documents import Document
-from langchain_core.output_parsers import BaseOutputParser
 from langchain_core.prompts import PromptTemplate
+from langchain_core.runnables import RunnableLambda
 
 from util import constants
 from util.library import util_common
@@ -22,7 +24,13 @@ from util.library import util_common
 def generate_query_tags(query_text):
     empty_prompt = constants.OLLAMA_PROMPT
 
-    instruction = "You are a helpful assistant working at the EU. It is your job to give users unbiased article recommendations. To do so, you always provide a list of tags, whenever you are prompted with a search query. The tags should represent the core ideas of user search query, and always be unbiased and in English. Respond with the tags only, separated by commas in a string array. Each tag can be 1 or more words, if needed"
+    instruction = """You are a helpful assistant working at the EU. It is your job to give users unbiased article 
+    recommendations. To do so, you always provide a list of tags, whenever you are prompted with a user search query. 
+    These tags should represent the core ideas of the user search query, and always be unbiased and in English.
+    However, some of the generated tags may be non-English only if they are proper nouns like names or places. Each  
+    tag may be 1 word or a phrase of maximum 8 words. Respond with only the tags, separated by new line characters Do 
+    not describe the query in any detail in the response, regardless of the language. Always respond with just the 
+    tags. The first line should be be the header: Tags"""
 
     prompt = PromptTemplate.from_template(empty_prompt)
     llm = Ollama(model=constants.OLLAMA_MODEL_ID)
@@ -31,8 +39,10 @@ def generate_query_tags(query_text):
     response = chain.invoke({"instruction": instruction, "input": query_text})
     #print(response)
 
-    tags = response.split(",")
-    tags = list(set(map(lambda x: x.strip().lower(), tags)))
+    tags = response.split("\n")
+    tags = list(filter(None, tags))
+    tags = tags[1:]
+    tags = list(set(map(lambda x: x.strip(), tags)))
 
     return tags
 
@@ -48,12 +58,7 @@ def handle_user_query(query, query_id, output_path):
 
     QUERY_PROMPT = PromptTemplate(
         input_variables=["question"],
-        template="""You are an AI language model assistant. Your task is to generate five 
-               different versions of the given user question to retrieve relevant documents from a vector 
-               database. By generating multiple perspectives on the user question, your goal is to help
-               the user overcome some of the limitations of the distance-based similarity search. 
-               Provide these alternative questions separated by newlines. Respond with the alternative questions only.
-               Original question: {question}""",
+        template=constants.MULTI_QUERY_PROMPT,
     )
     llm = Ollama(model=constants.OLLAMA_MODEL_ID)
 
@@ -63,23 +68,54 @@ def handle_user_query(query, query_id, output_path):
     response = chain.invoke({"question": translated_query})
 
     generated_queries = response.strip().split("\n")
-    generated_queries = list(set(map(lambda x: x.strip().lower(), generated_queries)))
+    #Remove empty strings
+    generated_queries = list(filter(None, generated_queries))
+    generated_queries = list(map(lambda x: x.strip(), generated_queries))
 
+    list_size = len(generated_queries)
+    if list_size > 5:
+        generated_queries = generated_queries[-5:]
+
+    os.makedirs(output_path, exist_ok=True)
     with open(join(output_path, f"{query_id}.json"), "w") as f:
         json.dump({
             "generated_queries": generated_queries,
             "detected_language": query_lang,
         }, f)
 
-    asyncio.run(perform_search(translated_query, output_path, llm))
+    asyncio.run(perform_search(translated_query, generated_queries))
 
 
-async def perform_search(translated_query, output_path, llm):
+# Subclass of MultiQueryRetriever
+class CustomMultiQueryRetriever(MultiQueryRetriever):
+    generated_queries: List[str] = []
+
+    def _get_relevant_documents(
+            self,
+            query: str,
+            *,
+            run_manager: CallbackManagerForRetrieverRun,
+    ) -> List[Document]:
+        queries = self.generated_queries
+        if self.include_original:
+            queries.append(query)
+        documents = self.retrieve_documents(queries, run_manager)
+        return self.unique_union(documents)
+
+
+async def perform_search(translated_query, generated_queries):
+    original_query_tags = generate_query_tags(translated_query)
+    query_tag_list = []
+    for line in generated_queries:
+        line_tag = generate_query_tags(line)
+        query_tag_list.append(', '.join(line_tag))
+
     docs = []
 
-    for file_name in os.listdir(output_path):
+    os.makedirs(constants.PRE_PROCESSED_PATH, exist_ok=True)
+    for file_name in os.listdir(constants.PRE_PROCESSED_PATH):
         if file_name.endswith('.json'):  # Ensure we are only processing JSON files
-            file_path = os.path.join(output_path, file_name)
+            file_path = os.path.join(constants.PRE_PROCESSED_PATH, file_name)
             with open(file_path, 'r') as file:
                 data = json.load(file)
                 tags = data.get('transformed_representation', [])
@@ -88,53 +124,41 @@ async def perform_search(translated_query, output_path, llm):
 
                 doc = Document(
                     page_content=', '.join(tags),
-                    metadata={"file_name": file_name, "source": file_path}
+                    metadata={'file_name': file_name, 'source': file_path, 'article_file': f"data/articles/{file_name}"}
                 )
                 docs.append(doc)
 
-    if not docs:
-        print("No documents found.")
-        return
+                embedded_directory = constants.PRE_PROCESSED_PATH + '/embedded'
+                os.makedirs(embedded_directory, exist_ok=True)
+                # Move the file to the destination folder after processing
+                shutil.move(file_path, os.path.join(embedded_directory, file_name))
 
     embedding_function = OllamaEmbeddings(model="mxbai-embed-large")
 
-    # load it into Chroma
-    vector_db = Chroma.from_documents(docs, embedding_function)
-
-    # Output parser will split the LLM result into a list of queries
-    class LineListOutputParser(BaseOutputParser[List[str]]):
-        """Output parser for a list of lines."""
-
-        def parse(self, text: str) -> List[str]:
-            lines = text.strip().split("\n")
-            lines_tags = []
-            for line in lines:
-                line_tag = generate_query_tags(line)
-                lines_tags.append(', '.join(line_tag))
-
-            return lines_tags
-
-    output_parser = LineListOutputParser()
-
-    QUERY_PROMPT = PromptTemplate(
-        input_variables=["question"],
-        template="""You are an AI language model assistant. Your task is to generate five 
-                   different versions of the given user question to retrieve relevant documents from a vector 
-                   database. By generating multiple perspectives on the user question, your goal is to help
-                   the user overcome some of the limitations of the distance-based similarity search. 
-                   Provide these alternative questions separated by newlines. Response with the alternative questions only.
-                   Original question: {question}""",
+    vector_db = Chroma(
+        collection_name="articles",
+        embedding_function=embedding_function,
+        persist_directory="./chroma",
+        collection_metadata={"hnsw:space": "cosine"}
     )
 
-    # Chain
-    llm_chain = QUERY_PROMPT | llm | output_parser
+    if docs:
+        vector_db.add_documents(docs)
+        print("Documents loaded successfully.")
 
     # Run
-    retriever = MultiQueryRetriever(
-        retriever=vector_db.as_retriever(), llm_chain=llm_chain, include_original=True)
-
+    retriever = CustomMultiQueryRetriever(
+        generated_queries=query_tag_list,
+        retriever=vector_db.as_retriever(search_type="similarity_score_threshold",
+                                         search_kwargs={'k': 20,
+                                                        'score_threshold': 0.75}),
+        llm_chain=RunnableLambda(lambda x: x + 1), include_original=True)
     # Results
-    unique_docs = retriever.invoke(translated_query)
+    unique_docs = retriever.invoke(','.join(original_query_tags))
+
+    if not unique_docs:
+        print("No documents found.")
+        return
 
     search_results = {
         "query": translated_query,
@@ -143,6 +167,7 @@ async def perform_search(translated_query, output_path, llm):
                 "index": index,
                 "file": doc.metadata["file_name"],
                 "source": doc.metadata["source"],
+                "article_file": doc.metadata["article_file"],
                 "article_tags": doc.page_content
             }
             for index, doc in enumerate(unique_docs)
@@ -153,13 +178,14 @@ async def perform_search(translated_query, output_path, llm):
 
 
 # if True:
-#     handle_user_query("What are the benefits of LLMs in programming?", "1", "output")
-#     #rank_articles(["What are the benefits of LLMs in programming?"], [[ "llms", "ai", "programming" ], [ "war in ukraine", "russia", "ukraine"]])
+#     handle_user_query("Da li je predsednik Republike Aleksandar Vučić govorio u Beogradu?", "1", "output")
+#     #handle_user_query("Film Noir by Joseph Lewis", "1", "output")
+#     #handle_user_query("Malawi Vice President Plane Crash", "1", "output")
 #     exit(0)
-#
 # exit(0)
 
 import argparse
+
 # This is a sample argparse-setup, you probably want to use in your project:
 parser = argparse.ArgumentParser(description='Run the inference.')
 parser.add_argument('--query', type=str, help='The user query.', required=True, action="append")

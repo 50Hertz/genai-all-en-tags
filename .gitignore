@@ -197,3 +197,4 @@ cython_debug/
 
 **/.DS_Store
 /output/
+#/data/

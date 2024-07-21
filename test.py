@@ -1,11 +1,11 @@
 import argparse
+import json
+import shutil
 import subprocess
 import sys
+from os import mkdir
+from os.path import join, isfile, split as split_path
 from random import sample
-from os import mkdir, rmdir
-from os.path import join, isfile, isdir, split as split_path
-import shutil
-import json
 
 
 class bcolors:

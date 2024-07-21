@@ -1,8 +1,36 @@
 import json
+import os
+import shutil
 from datetime import datetime, timedelta
+from random import sample
+
 from googletrans import Translator
 from util.constants import ALLOWED_LANGUAGES
 
+
+def copy_file(file_location, destination_folder):
+    # Ensure the destination folder exists
+    os.makedirs(destination_folder, exist_ok=True)
+
+    # Copy the file to the destination folder
+    shutil.copy(file_location, destination_folder)
+
+
+def copy_file_with_id(file_location, destination_folder, unique_id):
+    os.makedirs(destination_folder, exist_ok=True)
+
+    # Extract the file name and extension
+    file_name, file_extension = os.path.splitext(os.path.basename(file_location))
+
+    # Create the new file name by appending the unique ID
+    new_file_name = f"{file_name}_{unique_id}{file_extension}"
+
+    # Copy the file to the destination folder with the new name
+    shutil.copy(file_location, os.path.join(destination_folder, new_file_name))
+
+
+def nanoid(n=10):
+    return ''.join(sample('abcdefghijklmnopqrstuvwxyz', n))
 
 def detect_language(text):
     translator = Translator()
